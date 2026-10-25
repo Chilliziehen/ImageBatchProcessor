@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ImageBatchProcessorGui</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\build\bin\Release\ImageBatchProcessorCore.dll" Link="ImageBatchProcessorCore.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\build\shaders\*.spv" Link="shaders\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

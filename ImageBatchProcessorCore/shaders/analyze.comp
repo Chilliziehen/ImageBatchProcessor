@@ -1,0 +1,15 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+layout(local_size_x=256) in;
+layout(binding=0,rgba32f) uniform readonly image2D src;
+layout(std430,binding=3) buffer Results {uint hist[1024];float partial[];};
+layout(push_constant) uniform Push {uint index;uint stride;uint width;uint height;} pc;
+shared vec4 a[256];shared vec4 b[256];shared vec4 c[256];shared vec4 d[256];shared vec4 e[256];shared vec4 f[256];
+float lv(ivec2 q){return dot(encode(imageLoad(src,clamp(q,ivec2(0),imageSize(src)-1)).rgb),LUMA);}
+void main(){uint k=gl_GlobalInvocationID.x,l=gl_LocalInvocationID.x;uint sw=(pc.width+pc.stride-1)/pc.stride,sh=(pc.height+pc.stride-1)/pc.stride;vec4 va=vec4(0),vb=vec4(0),vc=vec4(0),vd=vec4(0),ve=vec4(0),vf=vec4(0);
+ if(k<sw*sh){ivec2 q=ivec2((k%sw)*pc.stride,(k/sw)*pc.stride);vec3 rgb=clamp(encode(imageLoad(src,q).rgb),0,1);float y=dot(rgb,LUMA),yl=max(dot(imageLoad(src,q).rgb,LUMA),1e-7);float rg=rgb.r-rgb.g,yb=(rgb.r+rgb.g)*.5-rgb.b;float lap=lv(q+ivec2(1,0))+lv(q-ivec2(1,0))+lv(q+ivec2(0,1))+lv(q-ivec2(0,1))-4*y;float grad=abs(lv(q+ivec2(1,0))-y)+abs(lv(q+ivec2(0,1))-y);
+  vec3 lin=decode(rgb);vec3 xyz=mat3(.4124564,.2126729,.0193339,.3575761,.7151522,.119192,.1804375,.072175,.9503041)*lin/vec3(.95047,1,1.08883);vec3 lab= mix(7.787*xyz+vec3(16./116.),pow(max(xyz,0),vec3(1./3)),greaterThan(xyz,vec3(.008856)));
+  va=vec4(rgb,y);vb=vec4(y*y,log(yl),rgbhsl(rgb).y,1);vc=vec4(rg,rg*rg,yb,yb*yb);vd=vec4(116*lab.y-16,500*(lab.x-lab.y),200*(lab.y-lab.z),lap*lap);ve=vec4(grad,abs(lap),float(y<.005),float(max(rgb.r,max(rgb.g,rgb.b))>.995));vf=vec4(float(grad<.02)*abs(lap),float(grad<.02),0,0);
+  atomicAdd(hist[uint(clamp(y*255,0,255))],1);for(int i=0;i<3;i++)atomicAdd(hist[(i+1)*256+uint(clamp(rgb[i]*255,0,255))],1);
+ }a[l]=va;b[l]=vb;c[l]=vc;d[l]=vd;e[l]=ve;f[l]=vf;barrier();for(uint s=128;s>0;s>>=1){if(l<s){a[l]+=a[l+s];b[l]+=b[l+s];c[l]+=c[l+s];d[l]+=d[l+s];e[l]+=e[l+s];f[l]+=f[l+s];}barrier();}if(l==0){uint o=gl_WorkGroupID.x*24;for(int i=0;i<4;i++){partial[o+i]=a[0][i];partial[o+4+i]=b[0][i];partial[o+8+i]=c[0][i];partial[o+12+i]=d[0][i];partial[o+16+i]=e[0][i];partial[o+20+i]=f[0][i];}}}

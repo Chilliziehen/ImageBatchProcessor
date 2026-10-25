@@ -1,0 +1,6 @@
+add_executable(imgbp main.cpp)
+target_link_libraries(imgbp PRIVATE ImageBatchProcessorCore)
+target_compile_definitions(imgbp PRIVATE NOMINMAX)
+if(MSVC)
+ target_compile_options(imgbp PRIVATE /W4 /EHsc /utf-8)
+endif()

@@ -1,0 +1,3 @@
+[submodule "external/LibRaw"]
+	path = external/LibRaw
+	url = https://github.com/LibRaw/LibRaw.git

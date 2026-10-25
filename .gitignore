@@ -1,0 +1,13 @@
+build/
+dist/
+dist-*/
+external/*
+!external/LibRaw/
+qa/
+GUI/bin/
+GUI/obj/
+__pycache__/
+*.user
+releases/
+build-*/
+*.pdb
