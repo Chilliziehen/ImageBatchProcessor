@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "imgbp_editor.h"
 #include <array>
 #include <cstring>
 #include <fstream>
@@ -47,6 +48,7 @@ struct Resident {
   }
 };
 struct Context {
+  bool ownsDevice = true;
   VkInstance instance{};
   VkPhysicalDevice gpu{};
   VkDevice device{};
@@ -82,9 +84,9 @@ struct Context {
       for (auto s : chain)
         if (s)
           vkDestroySemaphore(device, s, nullptr);
-      vkDestroyDevice(device, nullptr);
+      if (ownsDevice) vkDestroyDevice(device, nullptr);
     }
-    if (instance)
+    if (instance && ownsDevice)
       vkDestroyInstance(instance, nullptr);
   }
   uint32_t memory(uint32_t bits, VkMemoryPropertyFlags flags) {
@@ -277,11 +279,15 @@ struct Context {
     check(vkCreateDevice(gpu, &di, nullptr, &device));
     vkGetDeviceQueue(device, cf, 0, &cq);
     vkGetDeviceQueue(device, tf, 0, &tq);
+    resources(directory, dedicated);
+  }
+  void resources(const char* directory, bool dedicated) {
     VkFormatProperties fp;
     vkGetPhysicalDeviceFormatProperties(gpu, VK_FORMAT_R32G32B32A32_SFLOAT,
                                         &fp);
-    require(fp.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT,
-            "RGBA32F storage images unsupported");
+    constexpr auto requiredFormatFeatures = VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    require((fp.optimalTilingFeatures & requiredFormatFeatures) == requiredFormatFeatures,
+            "RGBA32F storage/linear sampled images unsupported");
     for (int i = 0; i < 2; i++) {
       VkCommandPoolCreateInfo pi{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
       pi.queueFamilyIndex = i ? tf : cf;
@@ -387,7 +393,7 @@ struct Sets {
 };
 extern "C" {
 const char *IBP_LastError() { return ibp_error.c_str(); }
-const char *IBP_Version() { return "1.0.0"; }
+const char *IBP_Version() { return "1.1.0"; }
 int IBP_Create(const char *d, IBP_Context *out) {
   IBP_TRY {
     require(out, "Null output");
@@ -399,6 +405,65 @@ int IBP_Create(const char *d, IBP_Context *out) {
   }
   IBP_CATCH
 }
+
+int IBP_CreateSharedVulkan(const IBP_VulkanDevice* shared,const char* dir,IBP_Context* out) {
+  IBP_TRY {
+    require(shared && out && shared->instance && shared->device && shared->physicalDevice && shared->queue,"Invalid shared device");
+    *out=nullptr;
+    auto c=std::make_unique<Context>();
+    c->ownsDevice=false;c->instance=shared->instance;c->gpu=shared->physicalDevice;
+    c->device=shared->device;c->cq=c->tq=shared->queue;c->cf=c->tf=shared->queueFamily;
+    vkGetPhysicalDeviceProperties(c->gpu,&c->properties);
+    uint32_t count=0;vkGetPhysicalDeviceQueueFamilyProperties(c->gpu,&count,nullptr);
+    std::vector<VkQueueFamilyProperties> families(count);
+    vkGetPhysicalDeviceQueueFamilyProperties(c->gpu,&count,families.data());
+    require(c->cf<count && (families[c->cf].queueFlags&VK_QUEUE_COMPUTE_BIT),"Shared queue needs compute");
+    c->resources(dir,false);*out=c.release();return 0;
+  } IBP_CATCH
+}
+int IBP_GetVulkanView(IBP_Context opaque,IBP_Image handle,VkImageView* view) {
+  IBP_TRY {
+    auto& c=context(opaque);std::lock_guard lock(c.mutex);require(view,"Null view");
+    auto& im=c.get(handle);*view=im.view[im.current];return 0;
+  } IBP_CATCH
+}
+int IBP_CopyImage(IBP_Context opaque,IBP_Image source,IBP_Image destination) {
+  IBP_TRY {
+    auto& c=context(opaque);std::lock_guard lock(c.mutex);
+    require(source!=destination,"Copy requires distinct handles");
+    auto& a=c.get(source);auto& b=c.get(destination);
+    require(a.w==b.w && a.h==b.h,"Copy dimensions differ");
+    auto cmd=c.begin(false);
+    c.barrier(cmd,a.im[a.current]);c.barrier(cmd,b.im[b.current]);
+    VkImageCopy region{};region.srcSubresource=region.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};
+    region.extent={a.w,a.h,1};
+    vkCmdCopyImage(cmd,a.im[a.current],VK_IMAGE_LAYOUT_GENERAL,b.im[b.current],VK_IMAGE_LAYOUT_GENERAL,1,&region);
+    c.barrier(cmd,b.im[b.current]);c.submit(cmd,false);return 0;
+  } IBP_CATCH
+}
+int IBP_EncodeDisplay(IBP_Context opaque,IBP_Image source,IBP_Image destination) {
+  IBP_TRY {
+    auto& c=context(opaque);std::lock_guard lock(c.mutex);
+    require(source!=destination,"Display requires distinct handles");
+    auto& a=c.get(source);auto& b=c.get(destination);
+    require(a.w==b.w && a.h==b.h,"Display dimensions differ");
+    auto args=c.buffer(sizeof(IBP_Params),VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    auto stats=c.buffer(16,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    Sets sets(c,1);sets.update(0,a,a.current,*args,*stats);
+    VkDescriptorImageInfo dst{VK_NULL_HANDLE,b.view[b.current],VK_IMAGE_LAYOUT_GENERAL};
+    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet=sets.sets[0];write.dstBinding=1;write.descriptorCount=1;
+    write.descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;write.pImageInfo=&dst;
+    vkUpdateDescriptorSets(c.device,1,&write,0,nullptr);
+    auto cmd=c.begin(false);c.barrier(cmd,a.im[a.current]);c.barrier(cmd,b.im[b.current]);
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,c.process);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,c.pl,0,1,sets.sets.data(),0,nullptr);
+    uint32_t push[]={0,4,0,0};vkCmdPushConstants(cmd,c.pl,VK_SHADER_STAGE_COMPUTE_BIT,0,16,push);
+    vkCmdDispatch(cmd,(a.w+15)/16,(a.h+15)/16,1);
+    c.barrier(cmd,b.im[b.current]);c.submit(cmd,false);return 0;
+  } IBP_CATCH
+}
+
 void IBP_Destroy(IBP_Context c) { delete static_cast<Context *>(c); }
 const char *IBP_DeviceInfo(IBP_Context c) {
   return c ? static_cast<Context *>(c)->info.c_str() : "No context";
@@ -433,7 +498,7 @@ int UploadImageBatchMode(IBP_Context opaque, const IBP_HostImage *src,
         ci.tiling = VK_IMAGE_TILING_OPTIMAL;
         ci.usage = VK_IMAGE_USAGE_STORAGE_BIT |
                    VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                   VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+                   VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         if (c.cf != c.tf) {
           ci.sharingMode = VK_SHARING_MODE_CONCURRENT;
           ci.queueFamilyIndexCount = 2;
@@ -484,8 +549,8 @@ int UploadImageBatchMode(IBP_Context opaque, const IBP_HostImage *src,
 int UploadImage(IBP_Context c, const IBP_HostImage *s, IBP_Image *h) {
   return UploadImageBatchMode(c, s, 1, h);
 }
-int IBP_ProcessBatch(IBP_Context opaque, const IBP_Image *handles,
-                     const IBP_Params *params, uint32_t n) {
+int IBP_ProcessBatchCurves(IBP_Context opaque, const IBP_Image *handles,
+                     const IBP_Params *params, const IBP_CurveSet* curves, uint32_t n) {
   IBP_TRY {
     auto &c = context(opaque);
     std::lock_guard lock(c.mutex);
@@ -498,8 +563,13 @@ int IBP_ProcessBatch(IBP_Context opaque, const IBP_Image *handles,
         require(std::isfinite(v), "Non-finite processing parameter");
     }
     auto args =
-        c.buffer(n * sizeof(IBP_Params), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        c.buffer(n * sizeof(IBP_Params) + (curves ? n * 4096ull * sizeof(float) : 0), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     memcpy(args->data, params, n * sizeof(IBP_Params));
+    if(curves) for(uint32_t i=0;i<n;i++) {
+      for(auto& channel:curves[i].lut) for(float v:channel)
+        require(std::isfinite(v) && v>=0 && v<=1, "Invalid curve LUT");
+      memcpy((char*)args->data+n*sizeof(IBP_Params)+i*4096ull*sizeof(float),curves[i].lut,4096*sizeof(float));
+    }
     auto dummy = c.buffer(16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     Sets sets(c, n * 2);
     for (uint32_t i = 0; i < n; i++)
@@ -524,7 +594,7 @@ int IBP_ProcessBatch(IBP_Context opaque, const IBP_Image *handles,
         c.barrier(cmd, im.im[1 - im.current]);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, c.pl, 0, 1,
                                 &sets.sets[i * 2 + im.current], 0, nullptr);
-        uint32_t push[] = {i, pass, im.w, im.h};
+        uint32_t push[] = {i, pass, curves ? n*256+i*4096 : 0, im.h};
         vkCmdPushConstants(cmd, c.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, 16, push);
         vkCmdDispatch(cmd, (im.w + 15) / 16, (im.h + 15) / 16, 1);
         im.current = 1 - im.current;
@@ -534,6 +604,9 @@ int IBP_ProcessBatch(IBP_Context opaque, const IBP_Image *handles,
     return 0;
   }
   IBP_CATCH
+}
+int IBP_ProcessBatch(IBP_Context c,const IBP_Image* images,const IBP_Params* params,uint32_t n) {
+  return IBP_ProcessBatchCurves(c,images,params,nullptr,n);
 }
 int DownloadImageBatchMode(IBP_Context opaque, const IBP_Image *handles,
                            uint32_t n, IBP_HostImage *out) {

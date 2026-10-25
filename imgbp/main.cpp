@@ -1,4 +1,5 @@
 #include "imgbp.h"
+#include "imgbp_editor.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -252,8 +253,13 @@ int wmain(int argc, wchar_t **argv) {
     fs::create_directories(output);
     IBP_Target target;
     IBP_DefaultTarget(&target);
-    if (opts.contains("--target"))
-      ck(IBP_LoadTarget(opts["--target"].c_str(), &target));
+    bool extendedRecipe = false;
+    IBP_Recipe loadedRecipe{};
+    if (opts.contains("--target")) {
+      auto targetPath=fs::path(reinterpret_cast<const char8_t*>(opts["--target"].c_str()));
+      if(fs::file_size(targetPath)==5408) ck(IBP_LoadTarget(opts["--target"].c_str(), &target));
+      else {ck(IBP_LoadRecipe(opts["--target"].c_str(),&loadedRecipe));target=loadedRecipe.target;extendedRecipe=true;}
+    }
     std::string format = opts.contains("--format") ? opts["--format"] : "jpg";
     expect(format == "jpg" || format == "tif" || format == "png" ||
                format == "both",
@@ -353,7 +359,10 @@ int wmain(int argc, wchar_t **argv) {
             ck(IBP_SuggestParams(&before[i], &target, &ps[i]));
           apply(ps[i]);
         }
-        ck(IBP_ProcessBatch(c, ids.data(), ps.data(), uint32_t(ids.size())));
+        if(extendedRecipe) {
+          std::vector<IBP_CurveSet> curves(ids.size(),loadedRecipe.curves);
+          ck(IBP_ProcessBatchCurves(c,ids.data(),ps.data(),curves.data(),uint32_t(ids.size())));
+        } else ck(IBP_ProcessBatch(c, ids.data(), ps.data(), uint32_t(ids.size())));
         for (size_t i = 0; i < ids.size(); i++) {
           try {
             ck(IBP_Analyze(c, ids[i], &after[i]));
@@ -371,7 +380,8 @@ int wmain(int argc, wchar_t **argv) {
             IBP_Target record = target;
             record.parameters = ps[i];
             record.reference = after[i];
-            ck(IBP_SaveTarget(u8(recipe).c_str(), &record));
+            if(extendedRecipe){IBP_Recipe full=loadedRecipe;full.target=record;ck(IBP_SaveRecipe(u8(recipe).c_str(),&full));}
+            else ck(IBP_SaveTarget(u8(recipe).c_str(), &record));
             auto analysis = dests[i];
             analysis += ".analysis.json";
             ck(IBP_WriteAnalysisJson(u8(analysis).c_str(), &after[i]));

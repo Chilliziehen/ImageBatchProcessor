@@ -1,3 +1,9 @@
 [submodule "external/LibRaw"]
 	path = external/LibRaw
 	url = https://github.com/LibRaw/LibRaw.git
+[submodule "external/imgui"]
+	path = external/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "external/SDL"]
+	path = external/SDL
+	url = https://github.com/libsdl-org/SDL.git

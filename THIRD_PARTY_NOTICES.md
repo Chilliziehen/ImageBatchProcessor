@@ -6,7 +6,7 @@ The MIT license at the repository root applies to original ImageBatchProcessor c
 
 - Upstream: https://github.com/LibRaw/LibRaw
 - Exact source revision: `e8b172e2197c3d45b35ffa992f6cfd9c49fdc100`.
-- Source: the `external/LibRaw` submodule; the `ImageBatchProcessor-1.0.0-source-with-dependencies.zip` release asset contains a complete snapshot without requiring Git.
+- Source: the `external/LibRaw` submodule; the `source-with-dependencies.zip` asset for each release contains a complete snapshot without requiring Git.
 - Upstream offers LGPL 2.1 or CDDL 1.0. **This distribution elects CDDL 1.0.**
 - LibRaw is statically linked into `ImageBatchProcessorCore.dll`; the upstream source is unmodified.
 - Original notices are preserved in the source tree and the binary package under `licenses/LibRaw/`: `COPYRIGHT`, `LICENSE.CDDL` and `LICENSE.LGPL`.
@@ -23,6 +23,22 @@ The self-contained Windows GUI includes Microsoft .NET runtime components. The p
 - Package metadata records the runtime dependency versions in `gui/ImageBatchProcessorGui.deps.json` and `gui/ImageBatchProcessorGui.runtimeconfig.json`.
 
 These components retain their own licenses and third-party terms. Consult the bundled notice files before redistributing them.
+
+## Dear ImGui v1.92.9b-docking
+
+- Upstream: https://github.com/ocornut/imgui
+- Exact source revision: `b48d1afbe8ee8b238e2961dc363a949dd7304e23` in `external/imgui`.
+- MIT license; included in the binary package at `licenses/imgui/LICENSE.txt`.
+- Studio statically links Dear ImGui and its SDL3/Vulkan backends. Window/swapchain helpers in `Studio/main.cpp` are adapted from the upstream SDL3/Vulkan example, with attribution retained.
+
+## SDL 3.2.30
+
+- Upstream: https://github.com/libsdl-org/SDL
+- Exact source revision: `f5e5f6588921eed3d7d048ce43d9eb1ff0da0ffc` in `external/SDL`.
+- zlib license; included at `licenses/SDL/LICENSE.txt`.
+- Statically linked into Studio. Upstream source and embedded notices remain in the dependency source package.
+
+Studio loads an installed operating-system font at runtime. No Microsoft or Apple font files are bundled or relicensed by this project.
 
 ## Microsoft Visual C++ / OpenMP runtime
 

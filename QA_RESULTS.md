@@ -2,6 +2,17 @@
 
 核对日期：2026-10-25（Asia/Shanghai）。以下是本地测试结果，不表示所有操作系统、GPU 厂商或相机格式均已验证。
 
+## Studio 1.1 增量验证
+
+- Windows x64 Release：原生 SDL3 / ImGui / Vulkan 编辑器编译并实际运行。
+- 实际 UI 操作：曝光滑块、单次拖动一条历史、Ctrl+Z、曲线加点和拖动、原图/结果分割、切图后恢复各自参数、高 DPI 数值框与胶片栏、Unicode RAW 路径、全尺寸导出。
+- 从 GUI 导出带非恒等曲线的 JPEG，再使用原 RAW 和该 v2 配方通过 `imgbp batch --fixed --quality 95` 重放：两份 JPEG 的 SHA-256 完全一致。
+- `tests/editor_core.py`：不可变原图、反复重置不累积、PCHIP 单调性、1024 LUT 的独立 CPU/GPU 数值对照、同批不同曲线索引、显示编码、v2 长度/CRC/字节往返/v1 导入/非法参数；同时执行旧版数值回归。
+- 原生 UI 和 Core 测试在启用 `VK_LAYER_KHRONOS_validation` 时无错误输出。这里只报告本机实际路径，不覆盖所有交互/设备组合。
+- 简单 1363×2048 预览的复制、处理、显示编码及静止后分析，在本机 UI 中观测约 14–20 ms；不是固定帧率保证，复杂滤镜未据此承诺性能。
+
+新增格式、算法和工作流见 [FORMAT.md](FORMAT.md)、[ALGORITHMS.md](docs/ALGORITHMS.md) 和 [STUDIO.md](docs/STUDIO.md)。以下旧版批处理记录继续作为兼容性背景。
+
 ## 软件环境与覆盖
 
 | 检查 | 结果 |

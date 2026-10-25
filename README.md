@@ -2,11 +2,11 @@
 
 **基于 Vulkan Compute 的 Windows RAW 批处理引擎、命令行工具与桌面编辑器。**
 
-ImageBatchProcessor 将图像解码、GPU 驻留处理、统计分析、目标参数匹配和文件导出组织为可复用的流水线。核心库提供 C ABI 与 C++ RAII 包装，C# / WinForms 前端调用同一套 DLL；命令行工具适合批量任务和配方重放。
+ImageBatchProcessor 将图像解码、GPU 驻留处理、统计分析、目标参数匹配和文件导出组织为可复用的流水线。核心库提供 C ABI 与 C++ RAII 包装。新的 **Studio 编辑器使用 C++ / Dear ImGui / SDL3 / Vulkan**，提供滑块、可拖动曲线和 GPU 预览；命令行工具适合批量任务和配方重放。原 C# / WinForms 前端保留为兼容工具。
 
 [下载 Windows x64 发行版](https://github.com/Chilliziehen/ImageBatchProcessor/releases/latest) · [二进制格式](FORMAT.md) · [处理算法](docs/ALGORITHMS.md) · [验证记录](QA_RESULTS.md) · [参考文献](#references)
 
-> 当前版本：**1.0.0**。面向 Windows x64 / Vulkan 1.1；实际验证设备为 Intel Arc。项目提供明确、可检查的算法实现和描述性图像指标，不把自动参数建议视为主观审美评分，也不宣称覆盖商业 RAW 编辑器的全部功能。
+> 当前版本：**1.1.0**。面向 Windows x64 / Vulkan 1.1；实际验证设备为 Intel Arc。Studio 的窗口与渲染依赖可跨平台，但 Core 的 WIC 文件 I/O 尚未移植，当前发行版仍限 Windows。项目不把自动参数建议视为主观审美评分，也不宣称覆盖商业 RAW 编辑器的全部功能。
 
 ## 目录
 
@@ -25,14 +25,26 @@ ImageBatchProcessor 将图像解码、GPU 驻留处理、统计分析、目标�
 <a id="quick-start"></a>
 ## 快速开始
 
-从 [Releases](https://github.com/Chilliziehen/ImageBatchProcessor/releases) 下载 `ImageBatchProcessor-1.0.0-win-x64.zip`，完整解压后运行：
+从 [Releases](https://github.com/Chilliziehen/ImageBatchProcessor/releases) 下载 `ImageBatchProcessor-1.1.0-win-x64.zip`，完整解压后运行：
 
-- 图形界面：`gui/ImageBatchProcessorGui.exe`。
+- 新编辑器：`bin/ImageBatchProcessorStudio.exe`，支持将照片或目录拖入窗口。
+- 旧版兼容界面：`gui/ImageBatchProcessorGui.exe`（使用 v1 配方）。
 - 命令行：`bin/imgbp.exe`。
 - 默认目标：发行包根目录的 `natural.imgarg`。
 - 开发接口：`include/` 和 `lib/`。
 
-运行发行版需要支持 Vulkan 1.1、RGBA32F storage image 的显卡驱动。GUI 包含 .NET 运行时，普通图像处理不需要安装 Vulkan SDK；自行重新编译 Shader 时才需要 `glslc`。请保留 EXE / DLL 附近的 `shaders/` 目录。
+运行发行版需要支持 Vulkan 1.1、RGBA32F storage / sampled image 的显卡驱动。Studio 为原生程序，无需 .NET；兼容 GUI 包含 .NET 运行时。普通图像处理不需要安装 Vulkan SDK；自行重新编译 Shader 时才需要 `glslc`。请保留 EXE / DLL 附近的 `shaders/` 目录。
+
+### Studio 操作
+
+- 中央画布支持滚轮缩放、空格拖动、适应窗口，以及可拖动分界线的前后比较；按住 `\` 临时看原图。
+- 调整面板提供滑块和数值框：双击滑块重置，拖动数值微调，Ctrl+单击数值直接输入。
+- 曲线支持亮度及 RGB 四通道、点击加点、拖动节点、右键删除内部节点；曲线下方显示选中节点坐标，最多 32 点/通道。
+- 每张照片独立保存参数与历史，`Ctrl+Z` / `Ctrl+Y` 撤销重做；一次滑块或节点拖动形成一条历史。历史最多 80 步，重启只恢复最终参数。
+- 胶片栏支持 Ctrl+单击多选。配方菜单可以复制、粘贴、同步到选中照片，或保存可由 CLI 重放的 `.imgarg`。
+- 导出使用每张照片当前参数及原始尺寸，后台输出 JPEG / 16 位 TIFF / PNG，并附 v2 配方。已有图片不覆盖；取消在当前照片完成后生效。
+
+预览最长边为 **2048 像素**；“预览 100%”指预览纹理像素，不是 RAW 原始像素。解码与导出在后台执行，GPU 预览调用同步返回，拖动时最多约每 40 ms 请求一次更新。细节、降噪和几何应以全尺寸导出复核。布局和每张照片最终参数存储在 SDL 用户配置目录；原照片保持不变。详细设计及限制见 [Studio 工作流](docs/STUDIO.md)。
 
 在解压目录打开 PowerShell：
 
@@ -85,7 +97,7 @@ ImageBatchProcessor 将图像解码、GPU 驻留处理、统计分析、目标�
 | 模块 | 实现 |
 | --- | --- |
 | 光线与色调 | 线性曝光、阴影/高光 EV、黑白点、对比度、Gamma、柔性高光肩部 |
-| 色彩 | RGB 白平衡增益、全局色相/饱和度/自然饱和度、8 区 HSL、17 点亮度及 RGB 曲线、3×3 通道混合、分离色调、黑白 |
+| 色彩 | RGB 白平衡增益、全局色相/饱和度/自然饱和度、8 区 HSL、亮度及 RGB 曲线（旧接口 17 点；Studio 最多 32 控制点 / 1024 项 LUT）、3×3 通道混合、分离色调、黑白 |
 | 局部调整 | 径向、线性渐变、亮度蒙版；羽化、反选、局部曝光和饱和度 |
 | 细节与效果 | 5×5 双边降噪、阈值锐化、稀疏邻域局部对比度、对比度式去雾、暗角、确定性颗粒 |
 | 几何 | 逆向 Panini 重投影、水平视角、旋转、透视、径向 k1/k2、中心缩放、红蓝通道径向色差 |
@@ -105,11 +117,12 @@ ImageBatchProcessor 将图像解码、GPU 驻留处理、统计分析、目标�
 | 构建系统 | CMake ≥ 3.24 |
 | GPU 开发工具 | Vulkan SDK，含 `glslc`；已验证 1.4.321.1，Shader 目标 Vulkan 1.1 |
 | RAW 解码 | LibRaw 0.21.5，固定提交 `e8b172e2197c3d45b35ffa992f6cfd9c49fdc100` |
-| GUI | .NET 9 Windows Desktop SDK |
+| Studio | Dear ImGui v1.92.9b-docking、SDL 3.2.30，固定 Git 子模块 |
+| 兼容 GUI | .NET 9 Windows Desktop SDK；仅打包旧界面时需要 |
 | 数值验证 | Python 3、NumPy；报告工具另需 Pillow |
 | 可选 | OpenMP：CMake 检测到时启用对应编译/链接支持 |
 
-`external/LibRaw` 是固定提交的 Git 子模块。GitHub 自动生成的源码 ZIP 不含子模块内容；推荐递归克隆，或者下载 Release 中带依赖的源码包。
+`external/LibRaw`、`external/imgui`、`external/SDL` 是固定提交的 Git 子模块。GitHub 自动生成的源码 ZIP 不含子模块内容；推荐递归克隆，或者下载 Release 中带依赖的源码包。仅构建 Core / CLI 时可设置 `-DIBP_BUILD_STUDIO=OFF`。
 
 ```powershell
 git clone --recurse-submodules https://github.com/Chilliziehen/ImageBatchProcessor.git
@@ -122,12 +135,15 @@ cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 python -m pip install numpy
 python tests/integration.py
+python tests/editor_core.py
 
 # 构建、安装并生成包含 GUI 的发行目录
 powershell -ExecutionPolicy Bypass -File tools/package.ps1
 ```
 
 `tools/package.ps1` 输出 `dist/`，包含原生程序、离线 SPIR-V、开发头文件、import library、自包含 GUI 和许可证。脚本需要构建依赖已安装，不自动安装全局 SDK。该版本 GUI 的项目引用以 `build/bin/Release` 和 `build/shaders` 为约定目录。
+
+发布维护者可使用 `tools/package.ps1 -OutputDirectory dist-1.1.0`，提交源码后运行 `python tools/release_assets.py --version 1.1.0 --dist dist-1.1.0`。后者要求干净工作树，生成程序 ZIP、含固定子模块的源码 ZIP、逐文件 manifest 与 SHA-256 校验文件，不包含本地 QA 图像。
 
 离线编译工具：
 
@@ -161,6 +177,7 @@ flowchart LR
 | `imgbp` | 文件选择、批次组织、参数覆盖、导出、续处理与日志 |
 | `ShaderCompiler` | `imgbp-shaderc`：调用 `glslc` 离线生成 SPIR-V |
 | `GUI` | C# WinForms，P/Invoke 调用 Core，预览、编辑与导出 |
+| `Studio` | 原生 ImGui / SDL3 编辑器，共享 Vulkan 设备、驻留预览、历史和后台导出 |
 | `tests` / `tools` | 数值验证、打包及离线结果检查工具 |
 
 ### 驻留与批次
@@ -562,6 +579,19 @@ int main() {
 
 读取校验 magic、版本、长度、端序、工作空间、CRC32、有限处理参数和目标范围。CRC32 用于检测意外损坏，不是数字签名；参考统计字段不作完整语义校验。保留参数槽位默认置零。字节偏移、默认值、参数索引和目标边界顺序见 [FORMAT.md](FORMAT.md)。
 
+### Studio 扩展与 IMGARG v2
+
+[imgbp_editor.h](ImageBatchProcessorCore/include/imgbp_editor.h) 新增共享 Vulkan 设备、GPU 图像复制、显示编码、纹理视图、曲线 LUT 处理及配方接口。旧 ABI 与旧 17 点处理路径保持兼容。v2 文件固定 **22848 字节**，保存 v1 目标载荷及四通道控制点、插值模式和 1024 项 LUT；以保存的 LUT 为重放依据，编辑节点时重新生成 LUT。`IBP_LoadRecipe` 可读取 v1 / v2；`IBP_LoadTarget` 仍只接受 v1。
+
+新曲线采用分段三次 Hermite 插值与 PCHIP 斜率约束 [8]，避免单调节点间出现额外振荡。设 $h_i=x_{i+1}-x_i$、$d_i=(y_{i+1}-y_i)/h_i$；相邻割线同号时，内部导数为加权调和平均：
+
+$$
+w_1=2h_i+h_{i-1},\quad w_2=h_i+2h_{i-1},\qquad
+m_i=\frac{w_1+w_2}{w_1/d_{i-1}+w_2/d_i}.
+$$
+
+异号或有零斜率时取 $m_i=0$。端点采用单边估计并限幅；完整 Hermite 基函数、端点公式及 LUT 采样见 [ALGORITHMS.md](docs/ALGORITHMS.md#studio-curves)。从 v1 导入时保留分段线性模式；转换到 1024 项 LUT 存在采样近似，旧文件直接经 CLI v1 路径处理则没有此转换。
+
 <a id="validation"></a>
 ## 验证、性能与限制
 
@@ -591,6 +621,7 @@ Remove-Item Env:\VK_INSTANCE_LAYERS
 ### 已知限制
 
 - Windows 专用 I/O；尚未验证 AMD / NVIDIA 驱动、Linux 或 macOS。
+- Studio 当前没有画布蒙版绘制、裁剪框、原尺寸局部预览或显示器 ICC 变换；图形工作流借鉴 RAW 编辑器，但处理算法与 ACR 不等价。
 - 当前工作空间为 sRGB；没有完整 ICC 输入转换、广色域/HDR 管理、3D LUT 导入或完整 EXIF 保留。
 - 去雾、局部对比度、白平衡及噪声估计为明确的简化模型；未实现 AI 降噪、内容生成、对象识别、修复画笔、镜头数据库或专业传感器噪声模型。
 - 几何功能需要用户给定合理参数，画布大小不变，超出输入区域填黑；不自动裁去全部黑边。
@@ -611,5 +642,6 @@ Remove-Item Env:\VK_INSTANCE_LAYERS
 5. **Khronos Group.** [Vulkan Guide — Queues](https://docs.vulkan.org/guide/latest/queues.html)。用于队列能力、跨队列同步与 transfer 回退依据。
 6. **darktable contributors.** [darktable user manual — Processing modules](https://docs.darktable.org/usermanual/development/en/module-reference/processing-modules/)。仅用于功能范围调研，未复制其模块实现。
 7. **Intel.** [Intel IPP Developer Guide and Reference — Color Models](https://www.intel.com/content/www/us/en/docs/ipp/developer-guide-reference/2022-0/color-models.html)。CIELAB / XYZ 定义的技术参考；项目不链接或依赖 Intel IPP。
+8. **F. N. Fritsch and J. Butland.** “A Method for Constructing Local Monotone Piecewise Cubic Interpolants.” *SIAM Journal on Scientific and Statistical Computing*, **5**(2), 300–304, 1984. DOI: [10.1137/0905021](https://doi.org/10.1137/0905021)。用于曲线内部斜率的保形插值；[SciPy PCHIP 技术说明](https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.PchipInterpolator.html) 列出了同类加权调和平均规则。项目自行实现，不依赖 SciPy。
 
-文档核对日期：2026-10-25。公式描述 v1.0.0 的实际实现；算法改变时应同步更新本文、格式说明和数值验证。
+文档核对日期：2026-10-25。公式描述 v1.1.0 的实际实现；23 项分析定义保持不变。算法改变时应同步更新本文、格式说明和数值验证。

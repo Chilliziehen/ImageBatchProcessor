@@ -11,3 +11,5 @@ __pycache__/
 releases/
 build-*/
 *.pdb
+!external/imgui/
+!external/SDL/
